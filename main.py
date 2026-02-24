@@ -140,6 +140,10 @@ async def register(req: RegisterRequest):
     Register a new typing sample.
     Appends data to the global dataset and retrains the 1D CNN.
     """
+    # Basic username validation
+    if not req.username or len(req.username) > 50:
+        return {"status": "error", "message": "Username must be 1–50 characters."}
+
     # Store the raw timing lists together with the username
     dataset.append({
         "username": req.username,

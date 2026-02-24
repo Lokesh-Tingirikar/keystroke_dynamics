@@ -8,6 +8,9 @@
  * Flight time = press timestamp of current key − release timestamp of previous key
  */
 
+// Minimum number of keystrokes required before sending data
+const MIN_KEYSTROKES = 5;
+
 // ---------------------------------------------------------------------------
 // Keystroke recorder class — reusable for any textarea
 // ---------------------------------------------------------------------------
@@ -94,7 +97,7 @@ document.getElementById("registerBtn").addEventListener("click", async () => {
   }
 
   const data = registerRecorder.getData();
-  if (data.hold_times.length < 5) {
+  if (data.hold_times.length < MIN_KEYSTROKES) {
     statusEl.textContent = "⚠️  Please type at least a few words so we can capture enough keystrokes.";
     return;
   }
@@ -125,7 +128,7 @@ document.getElementById("predictBtn").addEventListener("click", async () => {
   const resultEl = document.getElementById("result");
   const data = testRecorder.getData();
 
-  if (data.hold_times.length < 5) {
+  if (data.hold_times.length < MIN_KEYSTROKES) {
     resultEl.textContent = "⚠️  Please type at least a few words before testing.";
     resultEl.className = "warning";
     return;

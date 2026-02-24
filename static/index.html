@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Keystroke Dynamics — 1D CNN Demo</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* General styles                                                      */
+    /* ------------------------------------------------------------------ */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 640px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 8px;
+      font-size: 1.6rem;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 32px;
+      font-size: 0.95rem;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Card panels                                                         */
+    /* ------------------------------------------------------------------ */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .card h2 {
+      margin-bottom: 16px;
+      font-size: 1.15rem;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+    }
+
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      margin-bottom: 14px;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #4a90d9;
+    }
+
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    button {
+      display: inline-block;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #4a90d9;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #357abd;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: #fff;
+    }
+
+    .btn-secondary:hover {
+      background: #565e64;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Result box                                                          */
+    /* ------------------------------------------------------------------ */
+    #result {
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 8px;
+      background: #f8f9fa;
+      font-size: 1rem;
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #555;
+    }
+
+    #result.success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    #result.warning {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    #status {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      color: #888;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Keystroke Dynamics</h1>
+    <p class="subtitle">1D CNN — User Identification Demo</p>
+
+    <!-- ============================================================== -->
+    <!-- Registration Panel                                              -->
+    <!-- ============================================================== -->
+    <div class="card">
+      <h2>📝 Register User</h2>
+
+      <label for="username">User Name</label>
+      <input type="text" id="username" placeholder="Enter your name" />
+
+      <label for="registerText">Type a sample sentence</label>
+      <textarea id="registerText" placeholder="Type here to record your keystroke pattern…"></textarea>
+
+      <button class="btn-primary" id="registerBtn">Register &amp; Train</button>
+      <div id="status">Ready</div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- Testing / Identification Panel                                  -->
+    <!-- ============================================================== -->
+    <div class="card">
+      <h2>🔍 Identify User</h2>
+
+      <label for="testText">Type a test sentence</label>
+      <textarea id="testText" placeholder="Type here to test identification…"></textarea>
+
+      <button class="btn-secondary" id="predictBtn">Identify User</button>
+
+      <div id="result">Type something above and click "Identify User"</div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

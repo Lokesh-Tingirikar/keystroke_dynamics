@@ -150,6 +150,136 @@
       color: #888;
       text-align: center;
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Prompt display (MonkeyType-style)                                   */
+    /* ------------------------------------------------------------------ */
+    .prompt-box {
+      background: #1e1e2e;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 14px;
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 1.15rem;
+      line-height: 1.8;
+      letter-spacing: 0.3px;
+      user-select: none;
+      min-height: 70px;
+      word-wrap: break-word;
+    }
+
+    .prompt-box .char {
+      color: #585b70;
+      transition: color 0.08s;
+    }
+
+    .prompt-box .char.correct {
+      color: #a6e3a1;
+    }
+
+    .prompt-box .char.incorrect {
+      color: #f38ba8;
+      text-decoration: underline;
+    }
+
+    .prompt-box .char.current {
+      border-left: 2px solid #cdd6f4;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { border-color: transparent; }
+    }
+
+    /* Progress bar */
+    .progress-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 0.82rem;
+      color: #888;
+    }
+
+    .progress-bar-track {
+      flex: 1;
+      height: 6px;
+      background: #e9ecef;
+      border-radius: 3px;
+      margin: 0 12px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4a90d9, #6dd5ed);
+      border-radius: 3px;
+      transition: width 0.15s;
+    }
+
+    .prompt-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .btn-icon {
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 0.82rem;
+      color: #555;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn-icon:hover {
+      background: #f0f2f5;
+      border-color: #999;
+    }
+
+    .prompt-label {
+      font-size: 0.82rem;
+      color: #999;
+      flex: 1;
+      text-align: right;
+    }
+
+    /* Hide the textarea visually but keep it focusable */
+    .typing-area {
+      position: relative;
+    }
+
+    .typing-area textarea {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      cursor: default;
+      z-index: 2;
+    }
+
+    .typing-area .prompt-box {
+      cursor: text;
+      position: relative;
+      z-index: 1;
+    }
+
+    .done-badge {
+      display: inline-block;
+      background: #d4edda;
+      color: #155724;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-left: 8px;
+    }
   </style>
 </head>
 <body>
@@ -166,10 +296,22 @@
       <label for="username">User Name</label>
       <input type="text" id="username" placeholder="Enter your name" />
 
-      <label for="registerText">Type a sample sentence</label>
-      <textarea id="registerText" placeholder="Type here to record your keystroke pattern…"></textarea>
+      <label>Type the text shown below</label>
+      <div class="prompt-actions">
+        <button class="btn-icon" id="newRegPrompt" title="New prompt">🔄 New Prompt</button>
+        <span class="prompt-label" id="regPromptLabel"></span>
+      </div>
+      <div class="progress-row">
+        <span id="regProgress">0 / 0 chars</span>
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="regProgressBar"></div></div>
+        <span id="regWordCount">0 words</span>
+      </div>
+      <div class="typing-area">
+        <div class="prompt-box" id="regPromptDisplay"></div>
+        <textarea id="registerText" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+      </div>
 
-      <button class="btn-primary" id="registerBtn">Register &amp; Train</button>
+      <button class="btn-primary" id="registerBtn" style="margin-top:14px">Register &amp; Train</button>
       <div id="status">Ready</div>
     </div>
 
@@ -179,12 +321,24 @@
     <div class="card">
       <h2>🔍 Identify User</h2>
 
-      <label for="testText">Type a test sentence</label>
-      <textarea id="testText" placeholder="Type here to test identification…"></textarea>
+      <label>Type the text shown below</label>
+      <div class="prompt-actions">
+        <button class="btn-icon" id="newTestPrompt" title="New prompt">🔄 New Prompt</button>
+        <span class="prompt-label" id="testPromptLabel"></span>
+      </div>
+      <div class="progress-row">
+        <span id="testProgress">0 / 0 chars</span>
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="testProgressBar"></div></div>
+        <span id="testWordCount">0 words</span>
+      </div>
+      <div class="typing-area">
+        <div class="prompt-box" id="testPromptDisplay"></div>
+        <textarea id="testText" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+      </div>
 
-      <button class="btn-secondary" id="predictBtn">Identify User</button>
+      <button class="btn-secondary" id="predictBtn" style="margin-top:14px">Identify User</button>
 
-      <div id="result">Type something above and click "Identify User"</div>
+      <div id="result">Type the prompt above and click "Identify User"</div>
     </div>
   </div>
 

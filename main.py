@@ -1,29 +1,62 @@
 """
 Keystroke Dynamics — 1D CNN Classification Web App
 ====================================================
-Backend built with FastAPI and TensorFlow/Keras.
+Backend built with FastAPI and PyTorch.
 
 Endpoints:
   /register  — Register a user with keystroke timing data and retrain the model.
   /predict   — Predict who is typing based on keystroke timing data.
 """
 
+import json
+import os
 import numpy as np
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
+from contextlib import asynccontextmanager
 
-# TensorFlow / Keras imports
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
+# PyTorch imports
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 # ---------------------------------------------------------------------------
-# App setup
+# Persistence — save / load dataset to a JSON file
 # ---------------------------------------------------------------------------
-app = FastAPI()
+DATA_FILE = "keystroke_data.json"
+
+def save_dataset():
+    """Persist the in-memory dataset to a JSON file."""
+    with open(DATA_FILE, "w") as f:
+        json.dump(dataset, f)
+
+def load_dataset():
+    """Load dataset from disk if the file exists."""
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+# ---------------------------------------------------------------------------
+# App setup — load saved data on startup
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load persisted dataset and retrain model on startup."""
+    global dataset
+    dataset = load_dataset()
+    if dataset:
+        print(f"Loaded {len(dataset)} sample(s) from {DATA_FILE}")
+        build_and_train_model()
+        print("Model retrained from saved data.")
+    else:
+        print("No saved data found. Starting fresh.")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 # Serve static files (index.html, app.js)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -33,7 +66,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ---------------------------------------------------------------------------
 # Each entry: {"username": str, "features": [[hold, flight], ...]}
 dataset: List[dict] = []
-model: Optional[keras.Model] = None
+model: Optional[nn.Module] = None
 label_map: dict = {}        # {username: int}
 SEQUENCE_LENGTH = 20         # Fixed sequence length for the 1D CNN
 CONFIDENCE_THRESHOLD = 0.65  # Below this → "Unknown User"
@@ -78,6 +111,31 @@ def preprocess(keystrokes: KeystrokeData) -> np.ndarray:
     return np.array(features, dtype=np.float32).reshape(1, SEQUENCE_LENGTH, 2)
 
 # ---------------------------------------------------------------------------
+# 1D CNN Model (PyTorch)
+# ---------------------------------------------------------------------------
+
+class KeystrokeCNN(nn.Module):
+    """Lightweight 1D CNN for keystroke-based user classification."""
+
+    def __init__(self, num_classes: int):
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_channels=2, out_channels=16,
+                               kernel_size=3, padding=1)  # same padding
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool1d(kernel_size=2)
+        # After conv+pool: (16, SEQUENCE_LENGTH//2) → flattened = 16 * 10 = 160
+        self.flatten_size = 16 * (SEQUENCE_LENGTH // 2)
+        self.fc = nn.Linear(self.flatten_size, num_classes)
+
+    def forward(self, x):
+        # x shape: (batch, seq_len, 2) → transpose to (batch, 2, seq_len) for Conv1d
+        x = x.permute(0, 2, 1)
+        x = self.pool(self.relu(self.conv1(x)))
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x  # raw logits; softmax applied during inference
+
+# ---------------------------------------------------------------------------
 # Helper: build & train a lightweight 1D CNN on the full in-memory dataset
 # ---------------------------------------------------------------------------
 
@@ -101,28 +159,42 @@ def build_and_train_model():
         ))
         y_list.append(label_map[entry["username"]])
 
-    X_train = np.concatenate(X_list, axis=0)                       # (N, 20, 2)
-    y_train = keras.utils.to_categorical(y_list, num_classes)       # (N, C)
+    X_train = np.concatenate(X_list, axis=0)   # (N, 20, 2)
+    y_train = np.array(y_list, dtype=np.int64)  # (N,)
+
+    # Convert to PyTorch tensors
+    X_tensor = torch.tensor(X_train, dtype=torch.float32)
+    y_tensor = torch.tensor(y_train, dtype=torch.long)
 
     # -----------------------------------------------------------------------
     # 1D CNN Architecture (lightweight — trains in seconds)
     # -----------------------------------------------------------------------
-    model = keras.Sequential([
-        layers.Input(shape=(SEQUENCE_LENGTH, 2)),
-        layers.Conv1D(filters=16, kernel_size=3, activation="relu", padding="same"),
-        layers.MaxPooling1D(pool_size=2),
-        layers.Flatten(),
-        layers.Dense(num_classes, activation="softmax"),
-    ])
-
-    model.compile(
-        optimizer="adam",
-        loss="categorical_crossentropy",
-        metrics=["accuracy"],
-    )
+    model = KeystrokeCNN(num_classes)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Train quickly (few epochs, small dataset)
-    model.fit(X_train, y_train, epochs=30, batch_size=4, verbose=0)
+    model.train()
+    batch_size = 4
+    n_samples = X_tensor.size(0)
+
+    for epoch in range(30):
+        # Shuffle each epoch
+        perm = torch.randperm(n_samples)
+        X_shuffled = X_tensor[perm]
+        y_shuffled = y_tensor[perm]
+
+        for i in range(0, n_samples, batch_size):
+            X_batch = X_shuffled[i:i + batch_size]
+            y_batch = y_shuffled[i:i + batch_size]
+
+            optimizer.zero_grad()
+            outputs = model(X_batch)
+            loss = criterion(outputs, y_batch)
+            loss.backward()
+            optimizer.step()
+
+    model.eval()
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -151,7 +223,8 @@ async def register(req: RegisterRequest):
         "flight_times": req.keystrokes.flight_times,
     })
 
-    # Retrain the model on the full dataset
+    # Save dataset to disk & retrain the model
+    save_dataset()
     build_and_train_model()
 
     return {
@@ -171,9 +244,14 @@ async def predict(req: PredictRequest):
                 "message": "No model trained yet. Please register users first."}
 
     X_test = preprocess(req.keystrokes)
-    probabilities = model.predict(X_test, verbose=0)[0]  # shape (num_classes,)
-    max_prob = float(np.max(probabilities))
-    predicted_idx = int(np.argmax(probabilities))
+    X_tensor = torch.tensor(X_test, dtype=torch.float32)
+
+    with torch.no_grad():
+        logits = model(X_tensor)
+        probabilities = torch.softmax(logits, dim=1)[0]  # shape (num_classes,)
+
+    max_prob = float(probabilities.max())
+    predicted_idx = int(probabilities.argmax())
 
     # Reverse lookup: index → username
     idx_to_name = {v: k for k, v in label_map.items()}

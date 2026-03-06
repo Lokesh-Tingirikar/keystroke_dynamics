@@ -1,140 +1,81 @@
-# Keystroke Dynamics — 1D CNN User Identification
+# Keystroke Dynamics
 
-A web application that identifies users based on their typing patterns using a lightweight **1D Convolutional Neural Network (CNN)**. It captures keystroke timing features — **hold times** and **flight times** — to build a unique biometric profile for each registered user.
+Identifies users by **how** they type, not what they type.
 
-## How It Works
+## What It Does
 
-| Feature | Description |
-|---|---|
-| **Hold Time** | Duration a key is held down (key release − key press) |
-| **Flight Time** | Gap between releasing the previous key and pressing the next key |
+1. You **register** by typing anything — the app records how long you press each key and the gaps between keys.
+2. A small **1D CNN** (neural network) learns your typing rhythm.
+3. Later, someone types — the model guesses **who** it is based on their rhythm.
 
-1. **Register** — A random prompt sentence is displayed (MonkeyType-style). Type it under a username. The app records your keystroke timings and trains a 1D CNN on all registered samples.
-2. **Identify** — A different prompt is shown. Type it out, and the trained model predicts which registered user is typing based on their unique rhythm.
-
-The UI provides:
-- **Live character highlighting** — green for correct, red for mistakes, with a blinking cursor
-- **Progress bar** — shows characters and words typed vs. total
-- **New Prompt button** — click to get a fresh sentence at any time
-- Paste is disabled to ensure genuine typing data
-
-If the model's confidence falls below **65%**, the user is classified as **Unknown User**.
+If confidence is below 65%, it says "Unknown User".
 
 ## Tech Stack
 
-- **Backend:** FastAPI + Uvicorn
-- **ML Model:** PyTorch (1D CNN)
-- **Frontend:** Vanilla HTML, CSS, JavaScript
-- **Data:** In-memory (resets on server restart)
+| Layer | Tech | Files |
+|---|---|---|
+| **Frontend** | HTML + CSS + JS | `static/index.html`, `static/styles.css`, `static/app.js` |
+| **Backend** | Python (FastAPI + PyTorch) | `main.py` |
+| **Data** | JSON | `keystroke_data.json` |
 
 ## Project Structure
 
 ```
 keystroke_dynamics/
-├── main.py              # FastAPI backend + 1D CNN model
+├── main.py              # Backend — API + neural network
+├── main.ipynb           # Same code as main.py, but as a notebook for learning
 ├── requirements.txt     # Python dependencies
 ├── README.md
+├── keystroke_data.json  # Saved typing data (auto-created)
 └── static/
-    ├── index.html       # Frontend UI
-    └── app.js           # Keystroke capture & API calls
+    ├── index.html       # The webpage
+    ├── styles.css       # Styling
+    └── app.js           # Records keystrokes + talks to the backend
 ```
 
-## Prerequisites
+## Setup
 
-- Python 3.9+
+```bash
+# 1. Create virtual environment
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Mac/Linux
 
-## Installation & Running
+# 2. Install dependencies
+pip install -r requirements.txt
 
-1. **Clone the repository**
-   ```bash
-   git clone <repo-url>
-   cd keystroke_dynamics
-   ```
+# 3. Run the server
+uvicorn main:app --reload
 
-2. **Create a virtual environment (recommended)**
-   ```bash
-   python -m venv venv
-   # Windows
-   venv\Scripts\activate
-   # macOS / Linux
-   source venv/bin/activate
-   ```
+# 4. Open browser
+# http://localhost:8000
+```
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Start the server**
-   ```bash
-   uvicorn main:app --reload
-   ```
-
-5. **Open in browser**
-   ```
-   http://127.0.0.1:8000
-   ```
-
-## API Endpoints
+## API
 
 ### `POST /register`
 
-Register a user with keystroke timing data and retrain the model.
-
-**Request body:**
 ```json
-{
-  "username": "alice",
-  "keystrokes": {
-    "hold_times": [85.2, 112.0, 95.7],
-    "flight_times": [0, 130.5, 98.3]
-  }
-}
-```
+// Request
+{ "username": "alice", "keystrokes": { "hold_times": [85, 112, 95], "flight_times": [0, 130, 98] } }
 
-**Response:**
-```json
-{
-  "status": "ok",
-  "message": "User 'alice' registered. Model trained on 1 sample(s)."
-}
+// Response
+{ "status": "ok", "message": "'alice' registered. 1 total samples." }
 ```
 
 ### `POST /predict`
 
-Predict who is typing based on keystroke timing data.
-
-**Request body:**
 ```json
-{
-  "keystrokes": {
-    "hold_times": [85.2, 112.0, 95.7],
-    "flight_times": [0, 130.5, 98.3]
-  }
-}
-```
+// Request
+{ "keystrokes": { "hold_times": [85, 112, 95], "flight_times": [0, 130, 98] } }
 
-**Response:**
-```json
-{
-  "match": "alice",
-  "confidence": 92.15
-}
+// Response
+{ "match": "alice", "confidence": 92.15 }
 ```
-
-## Model Architecture
-
-```
-Input (20, 2) → Conv1D(16, kernel=3, ReLU) → MaxPool1D(2) → Flatten → Dense(softmax)
-```
-
-- Sequences are padded/truncated to a fixed length of **20 timesteps**.
-- Trained with **Adam** optimizer and **categorical cross-entropy** loss for **30 epochs**.
-- The model retrains from scratch on every new registration (suitable for demo-scale data).
 
 ## Notes
 
-- All data is stored **in-memory** — it resets when the server restarts.
+- Data is saved to `keystroke_data.json` and persists across restarts.
 - Register **multiple samples per user** for better accuracy.
-- At least **2 users** must be registered before identification works reliably.
-- Minimum **5 keystrokes** are required per sample.
+- At least **2 users** needed before identification works well.
+- Minimum **5 keystrokes** required per sample.

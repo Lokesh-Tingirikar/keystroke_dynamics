@@ -3,67 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Keystroke Dynamics — 1D CNN Demo</title>
+  <title>Keystroke Dynamics</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <div class="container">
-    <h1>Keystroke Dynamics</h1>
-    <p class="subtitle">1D CNN — User Identification Demo</p>
 
-    <!-- ============================================================== -->
-    <!-- Registration Panel                                              -->
-    <!-- ============================================================== -->
-    <div class="card">
-      <h2>📝 Register User</h2>
+  <h1>Keystroke Dynamics</h1>
+  <p class="subtitle">Type a sentence → we learn your typing rhythm → identify you later</p>
 
-      <label for="username">User Name</label>
-      <input type="text" id="username" placeholder="Enter your name" />
+  <!-- REGISTER -->
+  <div class="card">
+    <h2>1. Register</h2>
+    <input type="text" id="username" placeholder="Your name" />
+    <textarea id="registerText" placeholder="Type anything here..."></textarea>
+    <button id="registerBtn">Register & Train</button>
+    <p id="status"></p>
+  </div>
 
-      <label>Type the text shown below</label>
-      <div class="prompt-actions">
-        <button class="btn-icon" id="newRegPrompt" title="New prompt">🔄 New Prompt</button>
-        <span class="prompt-label" id="regPromptLabel"></span>
-      </div>
-      <div class="progress-row">
-        <span id="regProgress">0 / 0 chars</span>
-        <div class="progress-bar-track"><div class="progress-bar-fill" id="regProgressBar"></div></div>
-        <span id="regWordCount">0 words</span>
-      </div>
-      <div class="typing-area">
-        <div class="prompt-box" id="regPromptDisplay"></div>
-        <textarea id="registerText" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-      </div>
-
-      <button class="btn-primary" id="registerBtn" style="margin-top:14px">Register &amp; Train</button>
-      <div id="status">Ready</div>
-    </div>
-
-    <!-- ============================================================== -->
-    <!-- Testing / Identification Panel                                  -->
-    <!-- ============================================================== -->
-    <div class="card">
-      <h2>🔍 Identify User</h2>
-
-      <label>Type the text shown below</label>
-      <div class="prompt-actions">
-        <button class="btn-icon" id="newTestPrompt" title="New prompt">🔄 New Prompt</button>
-        <span class="prompt-label" id="testPromptLabel"></span>
-      </div>
-      <div class="progress-row">
-        <span id="testProgress">0 / 0 chars</span>
-        <div class="progress-bar-track"><div class="progress-bar-fill" id="testProgressBar"></div></div>
-        <span id="testWordCount">0 words</span>
-      </div>
-      <div class="typing-area">
-        <div class="prompt-box" id="testPromptDisplay"></div>
-        <textarea id="testText" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-      </div>
-
-      <button class="btn-secondary" id="predictBtn" style="margin-top:14px">Identify User</button>
-
-      <div id="result">Type the prompt above and click "Identify User"</div>
-    </div>
+  <!-- IDENTIFY -->
+  <div class="card">
+    <h2>2. Identify</h2>
+    <textarea id="testText" placeholder="Type anything here..."></textarea>
+    <button id="predictBtn">Who am I?</button>
+    <p id="result"></p>
   </div>
 
   <script src="/static/app.js"></script>

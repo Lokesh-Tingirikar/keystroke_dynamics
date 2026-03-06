@@ -1,263 +1,201 @@
 """
-Keystroke Dynamics — 1D CNN Classification Web App
-====================================================
-Backend built with FastAPI and PyTorch.
-
-Endpoints:
-  /register  — Register a user with keystroke timing data and retrain the model.
-  /predict   — Predict who is typing based on keystroke timing data.
+Keystroke Dynamics — Backend
+Identifies users by HOW they type (not what they type).
 """
 
-import json
-import os
+import json, os
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
 from contextlib import asynccontextmanager
 
-# PyTorch imports
-import torch
-import torch.nn as nn
-import torch.optim as optim
 
-# ---------------------------------------------------------------------------
-# Persistence — save / load dataset to a JSON file
-# ---------------------------------------------------------------------------
+# ==================== DATA STORAGE ====================
+# We save all typing samples to a JSON file so data survives restarts
+
 DATA_FILE = "keystroke_data.json"
+dataset: list[dict] = []       # all registered typing samples
+model = None                    # the trained neural network
+label_map: dict = {}            # maps username → number (e.g. "Alice" → 0)
+SEQ_LEN = 20                    # we use 20 keystrokes per sample
+CONFIDENCE_THRESHOLD = 0.65     # below 65% confidence → "Unknown User"
+
 
 def save_dataset():
-    """Persist the in-memory dataset to a JSON file."""
     with open(DATA_FILE, "w") as f:
         json.dump(dataset, f)
 
+
 def load_dataset():
-    """Load dataset from disk if the file exists."""
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, ValueError):
+            return []
     return []
 
-# ---------------------------------------------------------------------------
-# App setup — load saved data on startup
-# ---------------------------------------------------------------------------
+
+# ==================== FASTAPI APP ====================
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load persisted dataset and retrain model on startup."""
+    # On startup: load saved data and train model
     global dataset
     dataset = load_dataset()
     if dataset:
-        print(f"Loaded {len(dataset)} sample(s) from {DATA_FILE}")
-        build_and_train_model()
-        print("Model retrained from saved data.")
+        print(f"Loaded {len(dataset)} samples. Training model...")
+        train_model()
     else:
-        print("No saved data found. Starting fresh.")
+        print("No data yet. Register some users first.")
     yield
 
 app = FastAPI(lifespan=lifespan)
-
-# Serve static files (index.html, app.js)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ---------------------------------------------------------------------------
-# In-memory dataset & model storage
-# ---------------------------------------------------------------------------
-# Each entry: {"username": str, "features": [[hold, flight], ...]}
-dataset: List[dict] = []
-model: Optional[nn.Module] = None
-label_map: dict = {}        # {username: int}
-SEQUENCE_LENGTH = 20         # Fixed sequence length for the 1D CNN
-CONFIDENCE_THRESHOLD = 0.65  # Below this → "Unknown User"
 
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
+# ==================== REQUEST SCHEMAS ====================
+# These define what JSON the frontend sends us
 
 class KeystrokeData(BaseModel):
-    hold_times: List[float]
-    flight_times: List[float]
-
+    hold_times: list[float]      # how long each key was pressed (ms)
+    flight_times: list[float]    # gap between key releases and next press (ms)
 
 class RegisterRequest(BaseModel):
     username: str
     keystrokes: KeystrokeData
 
-
 class PredictRequest(BaseModel):
     keystrokes: KeystrokeData
 
-# ---------------------------------------------------------------------------
-# Helper: convert raw keystroke lists → padded numpy array of shape
-#         (1, SEQUENCE_LENGTH, 2)
-# ---------------------------------------------------------------------------
 
-def preprocess(keystrokes: KeystrokeData) -> np.ndarray:
-    """Pad/truncate keystroke features to (SEQUENCE_LENGTH, 2)."""
-    hold = keystrokes.hold_times
-    flight = keystrokes.flight_times
+# ==================== PREPROCESSING ====================
+# Convert variable-length typing data → fixed-size array for the neural network
 
-    # Build pairs [hold_time, flight_time] for each keystroke
-    length = min(len(hold), len(flight))
-    features = [[hold[i], flight[i]] for i in range(length)]
+def preprocess(ks: KeystrokeData) -> np.ndarray:
+    length = min(len(ks.hold_times), len(ks.flight_times))
+    # Pair up: [[hold1, flight1], [hold2, flight2], ...]
+    features = [[ks.hold_times[i], ks.flight_times[i]] for i in range(length)]
 
-    # Pad or truncate to SEQUENCE_LENGTH
-    if len(features) < SEQUENCE_LENGTH:
-        features += [[0.0, 0.0]] * (SEQUENCE_LENGTH - len(features))
+    # Pad with zeros if too short, or cut off if too long
+    if len(features) < SEQ_LEN:
+        features += [[0.0, 0.0]] * (SEQ_LEN - len(features))
     else:
-        features = features[:SEQUENCE_LENGTH]
+        features = features[:SEQ_LEN]
 
-    return np.array(features, dtype=np.float32).reshape(1, SEQUENCE_LENGTH, 2)
+    return np.array(features, dtype=np.float32).reshape(1, SEQ_LEN, 2)
 
-# ---------------------------------------------------------------------------
-# 1D CNN Model (PyTorch)
-# ---------------------------------------------------------------------------
+
+# ==================== THE NEURAL NETWORK ====================
+# A simple 1D CNN: looks at patterns in your typing rhythm
+#
+#   Input: 20 keystrokes × 2 features (hold, flight)
+#     → Conv1d: finds patterns in nearby keystrokes
+#     → ReLU: activation function
+#     → MaxPool: shrinks the data
+#     → Linear: outputs one score per user
+#     → Softmax: converts scores to probabilities
 
 class KeystrokeCNN(nn.Module):
-    """Lightweight 1D CNN for keystroke-based user classification."""
-
-    def __init__(self, num_classes: int):
+    def __init__(self, num_users):
         super().__init__()
-        self.conv1 = nn.Conv1d(in_channels=2, out_channels=16,
-                               kernel_size=3, padding=1)  # same padding
+        self.conv = nn.Conv1d(2, 16, kernel_size=3, padding=1)
         self.relu = nn.ReLU()
-        self.pool = nn.MaxPool1d(kernel_size=2)
-        # After conv+pool: (16, SEQUENCE_LENGTH//2) → flattened = 16 * 10 = 160
-        self.flatten_size = 16 * (SEQUENCE_LENGTH // 2)
-        self.fc = nn.Linear(self.flatten_size, num_classes)
+        self.pool = nn.MaxPool1d(2)
+        self.fc = nn.Linear(16 * (SEQ_LEN // 2), num_users)
 
     def forward(self, x):
-        # x shape: (batch, seq_len, 2) → transpose to (batch, 2, seq_len) for Conv1d
-        x = x.permute(0, 2, 1)
-        x = self.pool(self.relu(self.conv1(x)))
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x  # raw logits; softmax applied during inference
+        x = x.permute(0, 2, 1)          # reshape for Conv1d
+        x = self.pool(self.relu(self.conv(x)))
+        x = x.view(x.size(0), -1)       # flatten
+        return self.fc(x)                # raw scores
 
-# ---------------------------------------------------------------------------
-# Helper: build & train a lightweight 1D CNN on the full in-memory dataset
-# ---------------------------------------------------------------------------
 
-def build_and_train_model():
-    """Build a 1D CNN and train on all registered keystroke samples."""
+# ==================== TRAINING ====================
+# Called every time someone registers — retrains on ALL data
+
+def train_model():
     global model, label_map
 
-    # Build label map from unique usernames
-    usernames = sorted(set(entry["username"] for entry in dataset))
-    label_map = {name: idx for idx, name in enumerate(usernames)}
-    num_classes = len(usernames)
+    # Step 1: map each username to a number
+    usernames = sorted(set(e["username"] for e in dataset))
+    label_map = {name: i for i, name in enumerate(usernames)}
 
-    # Prepare training arrays
+    # Step 2: prepare training data
     X_list, y_list = [], []
-    for entry in dataset:
-        X_list.append(preprocess(
-            KeystrokeData(
-                hold_times=entry["hold_times"],
-                flight_times=entry["flight_times"],
-            )
-        ))
-        y_list.append(label_map[entry["username"]])
+    for e in dataset:
+        X_list.append(preprocess(KeystrokeData(
+            hold_times=e["hold_times"],
+            flight_times=e["flight_times"],
+        )))
+        y_list.append(label_map[e["username"]])
 
-    X_train = np.concatenate(X_list, axis=0)   # (N, 20, 2)
-    y_train = np.array(y_list, dtype=np.int64)  # (N,)
+    X = torch.tensor(np.concatenate(X_list), dtype=torch.float32)
+    y = torch.tensor(y_list, dtype=torch.long)
 
-    # Convert to PyTorch tensors
-    X_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_tensor = torch.tensor(y_train, dtype=torch.long)
-
-    # -----------------------------------------------------------------------
-    # 1D CNN Architecture (lightweight — trains in seconds)
-    # -----------------------------------------------------------------------
-    model = KeystrokeCNN(num_classes)
-    criterion = nn.CrossEntropyLoss()
+    # Step 3: create model and train for 30 rounds
+    model = KeystrokeCNN(len(usernames))
+    loss_fn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    # Train quickly (few epochs, small dataset)
     model.train()
-    batch_size = 4
-    n_samples = X_tensor.size(0)
-
     for epoch in range(30):
-        # Shuffle each epoch
-        perm = torch.randperm(n_samples)
-        X_shuffled = X_tensor[perm]
-        y_shuffled = y_tensor[perm]
-
-        for i in range(0, n_samples, batch_size):
-            X_batch = X_shuffled[i:i + batch_size]
-            y_batch = y_shuffled[i:i + batch_size]
-
+        perm = torch.randperm(len(y))
+        for i in range(0, len(y), 4):  # batch size = 4
+            xb = X[perm[i:i+4]]
+            yb = y[perm[i:i+4]]
             optimizer.zero_grad()
-            outputs = model(X_batch)
-            loss = criterion(outputs, y_batch)
-            loss.backward()
+            loss_fn(model(xb), yb).backward()
             optimizer.step()
-
     model.eval()
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+
+# ==================== API ROUTES ====================
 
 @app.get("/")
-async def serve_index():
-    """Serve the main HTML page."""
+async def home():
     return FileResponse("static/index.html")
 
 
 @app.post("/register")
 async def register(req: RegisterRequest):
-    """
-    Register a new typing sample.
-    Appends data to the global dataset and retrains the 1D CNN.
-    """
-    # Basic username validation
     if not req.username or len(req.username) > 50:
-        return {"status": "error", "message": "Username must be 1–50 characters."}
+        return {"status": "error", "message": "Username must be 1-50 characters."}
 
-    # Store the raw timing lists together with the username
+    # Save this typing sample
     dataset.append({
         "username": req.username,
         "hold_times": req.keystrokes.hold_times,
         "flight_times": req.keystrokes.flight_times,
     })
-
-    # Save dataset to disk & retrain the model
     save_dataset()
-    build_and_train_model()
+    train_model()
 
-    return {
-        "status": "ok",
-        "message": f"User '{req.username}' registered. Model trained on {len(dataset)} sample(s).",
-    }
+    return {"status": "ok", "message": f"'{req.username}' registered. {len(dataset)} total samples."}
 
 
 @app.post("/predict")
 async def predict(req: PredictRequest):
-    """
-    Predict the user from a typing sample using the trained 1D CNN.
-    Returns 'Unknown User' when the model's confidence is below the threshold.
-    """
-    if model is None or len(label_map) == 0:
+    if model is None:
         return {"match": "Unknown User", "confidence": 0.0,
-                "message": "No model trained yet. Please register users first."}
+                "message": "No model yet. Register users first."}
 
-    X_test = preprocess(req.keystrokes)
-    X_tensor = torch.tensor(X_test, dtype=torch.float32)
-
+    # Run the typing data through the model
+    X = torch.tensor(preprocess(req.keystrokes), dtype=torch.float32)
     with torch.no_grad():
-        logits = model(X_tensor)
-        probabilities = torch.softmax(logits, dim=1)[0]  # shape (num_classes,)
+        probs = torch.softmax(model(X), dim=1)[0]
 
-    max_prob = float(probabilities.max())
-    predicted_idx = int(probabilities.argmax())
-
-    # Reverse lookup: index → username
+    confidence = float(probs.max())
+    predicted_idx = int(probs.argmax())
     idx_to_name = {v: k for k, v in label_map.items()}
-    predicted_name = idx_to_name.get(predicted_idx, "Unknown User")
+    name = idx_to_name.get(predicted_idx, "Unknown User")
 
-    if max_prob < CONFIDENCE_THRESHOLD:
-        return {"match": "Unknown User", "confidence": round(max_prob * 100, 2)}
-
-    return {"match": predicted_name, "confidence": round(max_prob * 100, 2)}
+    if confidence < CONFIDENCE_THRESHOLD:
+        return {"match": "Unknown User", "confidence": round(confidence * 100, 2)}
+    return {"match": name, "confidence": round(confidence * 100, 2)}
